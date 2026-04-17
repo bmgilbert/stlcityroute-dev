@@ -3288,44 +3288,45 @@ function launchGoogleLens() {
   document.getElementById('scan-source-modal').style.display = 'none';
   document.getElementById('scan-guide-modal').style.display = 'none';
 
-  // Try the Google app Lens intent (works on most Android with Google app)
-  // We use a hidden iframe trick — if the app is installed it opens;
-  // if not, the iframe fails silently and we fall back to web Lens.
   let launched = false;
-
-  // Method 1: googlelens:// custom scheme (Google Lens standalone)
-  const lensScheme = 'googlelens://';
-
-  // Method 2: Google app intent via intent:// URL
-  const intentUrl = 'intent://scan/#Intent;scheme=googleapp;package=com.google.android.googlequicksearchbox;end';
-
-  // Use a hidden link click — more reliable than iframe for intent:// on modern Android
-  const a = document.createElement('a');
-  a.href = intentUrl;
-  a.style.display = 'none';
-  document.body.appendChild(a);
-
-  // Track if the page loses focus (app launched successfully)
-  const blurTime = { t: 0 };
-  const onBlur = () => { blurTime.t = Date.now(); launched = true; };
+  const onBlur = () => { launched = true; };
   window.addEventListener('blur', onBlur, { once: true });
 
-  try {
-    a.click();
-  } catch(e) {}
-  document.body.removeChild(a);
+  // Try multiple intent URLs in sequence, stopping at the first that works.
+  // Each is tried by setting window.location — if the app handles it, page blurs.
+  // If not, Android ignores it (no Play Store redirect with these schemes).
 
-  // After 1.8s, if page never lost focus, app didn't launch → open web Lens
+  // Intent 1: Google Lens standalone app (com.google.ar.lens)
+  // Intent 2: Google app with lens action (com.google.android.googlequicksearchbox)
+  // Intent 3: googlelens:// custom scheme — simplest, works on many devices
+  const intents = [
+    'intent://lens.google.com/v3/lens#Intent;scheme=https;package=com.google.ar.lens;action=android.intent.action.VIEW;end',
+    'googlelens://',
+    'intent://scan#Intent;action=com.google.android.apps.lens.START_LENS_ACTIVITY;package=com.google.ar.lens;end',
+  ];
+
+  let idx = 0;
+  function tryNext() {
+    if (launched || idx >= intents.length) return;
+    const url = intents[idx++];
+    try {
+      window.location.href = url;
+    } catch(e) {}
+    // Wait 600ms; if still no blur, try the next one
+    setTimeout(() => { if (!launched) tryNext(); }, 600);
+  }
+  tryNext();
+
+  // After all intents tried: if still no focus loss, fall back to guide
   setTimeout(() => {
     window.removeEventListener('blur', onBlur);
     if (!launched) {
-      // Show guide with web fallback rather than silently opening a new tab
       showScanGuide();
     } else {
-      // App launched — show paste panel ready for when they return
-      setTimeout(() => openPastePanel(), 2000);
+      // Lens opened — pre-open paste panel so it's ready when user returns
+      setTimeout(() => openPastePanel(), 1500);
     }
-  }, 1800);
+  }, intents.length * 600 + 400);
 }
 
 
