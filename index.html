@@ -1042,13 +1042,19 @@ header{
 <div id="scan-source-modal" class="modal-overlay" onclick="if(event.target===this)this.style.display='none'" style="display:none">
   <div class="modal-sheet" style="padding-bottom:28px">
     <div class="modal-handle"></div>
-    <div class="modal-title">📷 Add Photo</div>
-    <div style="font-size:0.65rem;color:#888;font-family:'Space Mono',monospace;margin-bottom:16px">Scan addresses from a document or take a new photo</div>
-    <div style="display:flex;flex-direction:column;gap:9px">
-      <button onclick="scanChooseCamera()" style="padding:14px;border-radius:12px;border:none;background:var(--forest);color:var(--lime);font-family:'Syne',sans-serif;font-weight:800;font-size:0.82rem;cursor:pointer;letter-spacing:0.5px">📸 TAKE NEW PHOTO<br><span style="font-size:0.6rem;font-weight:400;opacity:0.7">Open camera</span></button>
-      <button onclick="scanChooseGallery()" style="padding:14px;border-radius:12px;border:1.5px solid var(--leaf);background:var(--sky);color:var(--moss);font-family:'Syne',sans-serif;font-weight:800;font-size:0.82rem;cursor:pointer;letter-spacing:0.5px">🖼️ CHOOSE FROM GALLERY<br><span style="font-size:0.6rem;font-weight:400;opacity:0.7">Pick from saved photos</span></button>
-      <button onclick="document.getElementById('scan-source-modal').style.display='none'" style="padding:10px;border-radius:10px;border:1.5px solid #ddd;background:none;color:#888;font-family:'Syne',sans-serif;font-weight:700;font-size:0.76rem;cursor:pointer">CANCEL</button>
-    </div>
+    <div class="modal-title" id="scan-modal-title">📷 Import Addresses</div>
+    <div id="scan-modal-body" style="display:flex;flex-direction:column;gap:9px"></div>
+  </div>
+</div>
+
+<!-- SCAN GUIDE MODAL — platform-specific instructions when no AI/TextDetector available -->
+<div id="scan-guide-modal" class="modal-overlay" onclick="if(event.target===this)this.style.display='none'" style="display:none">
+  <div class="modal-sheet" style="padding-bottom:28px;max-height:85vh;overflow-y:auto">
+    <div class="modal-handle"></div>
+    <div class="modal-title">📋 How to Import Addresses</div>
+    <div id="scan-guide-content" style="font-size:0.63rem;font-family:'Space Mono',monospace;color:#444;line-height:1.9"></div>
+    <button onclick="document.getElementById('scan-guide-modal').style.display='none';openPastePanel()" style="width:100%;margin-top:14px;padding:14px;border-radius:12px;border:none;background:var(--forest);color:var(--lime);font-family:'Syne',sans-serif;font-weight:800;font-size:0.82rem;cursor:pointer">📋 OPEN PASTE PANEL<br><span style="font-size:0.6rem;font-weight:400;opacity:0.7">Paste the copied text here</span></button>
+    <button onclick="document.getElementById('scan-guide-modal').style.display='none'" style="width:100%;margin-top:8px;padding:10px;border-radius:10px;border:1.5px solid #ddd;background:none;color:#888;font-family:'Syne',sans-serif;font-weight:700;font-size:0.76rem;cursor:pointer">CANCEL</button>
   </div>
 </div>
 
@@ -3193,9 +3199,139 @@ function mapCloseActive() {
     activeMapStopId = null;
   }
 }
-function triggerScan() {
-  document.getElementById('scan-source-modal').style.display = 'flex';
+// ── Detect device capabilities for scan routing ──────────────
+function detectScanCapability() {
+  const isIOS     = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  const isAndroid = /android/i.test(navigator.userAgent);
+  const hasApiKey = !!(localStorage.getItem('anthropic-api-key') || '').startsWith('sk-');
+  const hasTextDetector = 'TextDetector' in window;
+  return { isIOS, isAndroid, hasApiKey, hasTextDetector };
 }
+
+function openPastePanel() {
+  const panel = document.getElementById('paste-panel');
+  const btn   = document.getElementById('btn-paste-toggle');
+  if (panel) panel.style.display = 'block';
+  if (btn) { btn.style.borderColor = 'var(--leaf)'; btn.style.background = 'var(--sky)'; }
+  setTimeout(() => { const ta = document.getElementById('paste-input'); if (ta) ta.focus(); }, 150);
+}
+
+function triggerScan() {
+  const { isIOS, isAndroid, hasApiKey, hasTextDetector } = detectScanCapability();
+  const modal = document.getElementById('scan-source-modal');
+  const body  = document.getElementById('scan-modal-body');
+  const title = document.getElementById('scan-modal-title');
+
+  title.textContent = '📷 Import Addresses';
+
+  // Build buttons based on capability
+  const btn = (label, sub, bg, color, border, fn) =>
+    `<button onclick="${fn}" style="padding:14px;border-radius:12px;border:${border};background:${bg};color:${color};font-family:'Syne',sans-serif;font-weight:800;font-size:0.78rem;cursor:pointer;letter-spacing:0.5px;text-align:left">
+      ${label}<br><span style="font-size:0.58rem;font-weight:400;opacity:0.75">${sub}</span>
+    </button>`;
+
+  let html = '';
+
+  if (hasApiKey) {
+    // Best path: Anthropic API
+    html += btn('📸 SCAN WITH AI', 'Take a photo — AI reads addresses automatically',
+      'var(--forest)', 'var(--lime)', 'none',
+      "document.getElementById('scan-source-modal').style.display='none';document.getElementById('scan-camera-input').click()");
+    html += btn('🖼️ CHOOSE PHOTO', 'Pick from gallery — AI reads addresses',
+      'var(--sky)', 'var(--moss)', '1.5px solid var(--leaf)',
+      "document.getElementById('scan-source-modal').style.display='none';document.getElementById('scan-file-input').click()");
+  } else if (hasTextDetector) {
+    // Good path: on-device TextDetector
+    html += btn('📸 SCAN (ON-DEVICE)', 'Take photo — reads addresses using device AI',
+      'var(--forest)', 'var(--lime)', 'none',
+      "document.getElementById('scan-source-modal').style.display='none';document.getElementById('scan-camera-input').click()");
+    html += btn('🖼️ CHOOSE PHOTO', 'Pick from gallery — on-device reading',
+      'var(--sky)', 'var(--moss)', '1.5px solid var(--leaf)',
+      "document.getElementById('scan-source-modal').style.display='none';document.getElementById('scan-file-input').click()");
+    html += `<div style="font-size:0.54rem;color:#888;font-family:'Space Mono',monospace;text-align:center;padding:4px 0">
+      Add an Anthropic API key in ⚙️ Settings for better accuracy
+    </div>`;
+  } else {
+    // Fallback: show native guide for this platform
+    html += btn(
+      isIOS    ? '📷 USE iOS LIVE TEXT'    :
+      isAndroid? '🔍 USE GOOGLE LENS'       : '📋 COPY & PASTE',
+      isIOS    ? 'Open photo in iOS → tap Live Text → Copy → paste here' :
+      isAndroid? 'Open Google Lens → Copy text → paste here' :
+                 'Copy addresses from any source and paste here',
+      'linear-gradient(135deg,#1a4a8c,#2980b9)', 'white', 'none',
+      "document.getElementById('scan-source-modal').style.display='none';showScanGuide()"
+    );
+    html += btn('📋 OPEN PASTE PANEL', 'I already copied the text',
+      'var(--sky)', 'var(--moss)', '1.5px solid var(--leaf)',
+      "document.getElementById('scan-source-modal').style.display='none';openPastePanel()");
+    html += `<div style="font-size:0.54rem;color:#888;font-family:'Space Mono',monospace;text-align:center;padding:4px 0">
+      Add an Anthropic API key in ⚙️ Settings to enable direct photo scanning
+    </div>`;
+  }
+
+  html += btn('CANCEL', '', '#f5f5f5', '#888', '1.5px solid #ddd',
+    "document.getElementById('scan-source-modal').style.display='none'");
+
+  body.innerHTML = html;
+  modal.style.display = 'flex';
+}
+
+function showScanGuide() {
+  const { isIOS, isAndroid } = detectScanCapability();
+  const modal   = document.getElementById('scan-guide-modal');
+  const content = document.getElementById('scan-guide-content');
+
+  if (isIOS) {
+    content.innerHTML = `
+      <div style="background:#f0f8ff;border-left:3px solid #2980b9;border-radius:0 8px 8px 0;padding:12px;margin-bottom:14px">
+        <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:0.72rem;color:#1a3c6e;margin-bottom:8px">🍎 iOS Live Text (iOS 15+)</div>
+        <div style="line-height:2">
+          1. Take a photo of your address list<br>
+          2. Open the photo in the <b>Photos app</b><br>
+          3. Tap the <b>Live Text button</b> (lined square) in bottom-right<br>
+          4. Tap <b>Select All</b> then <b>Copy</b><br>
+          5. Come back here and tap <b>📋 OPEN PASTE PANEL</b><br>
+          6. Paste and tap <b>EXTRACT ADDRESSES</b>
+        </div>
+      </div>
+      <div style="background:#fff8ec;border-left:3px solid #e8a020;border-radius:0 8px 8px 0;padding:10px;font-size:0.56rem;color:#7a5000">
+        <b>Tip:</b> If Live Text button doesn't appear, the photo may be too blurry or dark. Try better lighting.
+      </div>`;
+  } else if (isAndroid) {
+    content.innerHTML = `
+      <div style="background:#e8f5e9;border-left:3px solid #27ae60;border-radius:0 8px 8px 0;padding:12px;margin-bottom:14px">
+        <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:0.72rem;color:#1a5c34;margin-bottom:8px">🤖 Google Lens (Android)</div>
+        <div style="line-height:2">
+          1. Open the <b>Google app</b> or <b>Google Lens</b><br>
+          2. Tap the camera icon → take or upload your photo<br>
+          3. Tap the <b>Text tab</b> at the bottom<br>
+          4. Tap <b>Select all</b> then <b>Copy all</b><br>
+          5. Come back here and tap <b>📋 OPEN PASTE PANEL</b><br>
+          6. Paste and tap <b>EXTRACT ADDRESSES</b>
+        </div>
+      </div>
+      <div style="background:#f0f8ff;border-left:3px solid #2980b9;border-radius:0 8px 8px 0;padding:10px;font-size:0.56rem;color:#1a3c6e">
+        <b>Shortcut:</b> In Google Photos, long-press any text in a photo and you'll get a "Copy text" option directly.
+      </div>`;
+  } else {
+    content.innerHTML = `
+      <div style="background:#f5f5f5;border-left:3px solid #888;border-radius:0 8px 8px 0;padding:12px;margin-bottom:14px">
+        <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:0.72rem;color:#444;margin-bottom:8px">💻 Desktop / Other</div>
+        <div style="line-height:2">
+          1. Go to <b>lens.google.com</b><br>
+          2. Upload your photo<br>
+          3. Click the <b>Text tab</b><br>
+          4. Select all and copy<br>
+          5. Come back here and tap <b>📋 OPEN PASTE PANEL</b><br>
+          6. Paste and tap <b>EXTRACT ADDRESSES</b>
+        </div>
+      </div>`;
+  }
+
+  modal.style.display = 'flex';
+}
+
 function scanChooseGallery() {
   document.getElementById('scan-source-modal').style.display = 'none';
   document.getElementById('scan-file-input').click();
@@ -3462,8 +3598,20 @@ async function handleScanImage(event) {
         addresses = extractAddressesFromText(rawText);
       }
 
+    } else if ('TextDetector' in window) {
+      // ── Path B: On-device TextDetector (Android Chrome) ────
+      statusEl.textContent = '⏳ Reading with device AI…';
+      const detector = new window.TextDetector();
+      // Convert file to ImageBitmap for TextDetector
+      const bitmap = await createImageBitmap(file);
+      const results = await detector.detect(bitmap);
+      bitmap.close();
+      const rawText = results.map(r => r.rawValue).join('\n');
+      statusEl.textContent = '⏳ Extracting addresses…';
+      addresses = extractAddressesFromText(rawText);
+
     } else {
-      // ── Path B: Tesseract local OCR (no key needed) ────────
+      // ── Path C: Tesseract local OCR (last resort) ──────────
       statusEl.textContent = '⏳ Loading OCR engine…';
       const Tesseract = await loadTesseract();
       statusEl.textContent = '⏳ Preprocessing image…';
@@ -3482,9 +3630,12 @@ async function handleScanImage(event) {
     }
 
     if (!addresses.length) {
+      const { hasTextDetector } = detectScanCapability();
       statusEl.textContent = apiKey
         ? '⚠️ No addresses found in image — try 📋 paste or 🎤 voice'
-        : '⚠️ No addresses found — add API key in ⚙️ Settings for better results';
+        : hasTextDetector
+          ? '⚠️ No addresses detected — try 📋 paste or add API key in ⚙️ Settings'
+          : '⚠️ No addresses found — use Google Lens / iOS Live Text → 📋 paste';
       statusEl.style.color = 'var(--warn)';
     } else {
       scannedAddresses = addresses.map(a => ({ address: a.trim(), checked: true }));
