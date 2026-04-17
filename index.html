@@ -3252,16 +3252,23 @@ function triggerScan() {
       Add an Anthropic API key in ⚙️ Settings for better accuracy
     </div>`;
   } else {
-    // Fallback: show native guide for this platform
-    html += btn(
-      isIOS    ? '📷 USE iOS LIVE TEXT'    :
-      isAndroid? '🔍 USE GOOGLE LENS'       : '📋 COPY & PASTE',
-      isIOS    ? 'Open photo in iOS → tap Live Text → Copy → paste here' :
-      isAndroid? 'Open Google Lens → Copy text → paste here' :
-                 'Copy addresses from any source and paste here',
-      'linear-gradient(135deg,#1a4a8c,#2980b9)', 'white', 'none',
-      "document.getElementById('scan-source-modal').style.display='none';showScanGuide()"
-    );
+    // Fallback: native app launch (Android) or guide (iOS/desktop)
+    if (isAndroid) {
+      html += btn('🔍 OPEN GOOGLE LENS',
+        'Launches Google Lens — take photo, copy text, paste here',
+        'linear-gradient(135deg,#1a6a4a,#27ae60)', 'white', 'none',
+        "document.getElementById('scan-source-modal').style.display='none';launchGoogleLens()");
+    } else if (isIOS) {
+      html += btn('📷 USE iOS LIVE TEXT',
+        'Open photo in iOS → tap Live Text → Copy → paste here',
+        'linear-gradient(135deg,#1a4a8c,#2980b9)', 'white', 'none',
+        "document.getElementById('scan-source-modal').style.display='none';showScanGuide()");
+    } else {
+      html += btn('📋 COPY & PASTE',
+        'Copy addresses from Google Lens or any source, paste here',
+        'linear-gradient(135deg,#555,#888)', 'white', 'none',
+        "document.getElementById('scan-source-modal').style.display='none';showScanGuide()");
+    }
     html += btn('📋 OPEN PASTE PANEL', 'I already copied the text',
       'var(--sky)', 'var(--moss)', '1.5px solid var(--leaf)',
       "document.getElementById('scan-source-modal').style.display='none';openPastePanel()");
@@ -3276,6 +3283,51 @@ function triggerScan() {
   body.innerHTML = html;
   modal.style.display = 'flex';
 }
+
+function launchGoogleLens() {
+  document.getElementById('scan-source-modal').style.display = 'none';
+  document.getElementById('scan-guide-modal').style.display = 'none';
+
+  // Try the Google app Lens intent (works on most Android with Google app)
+  // We use a hidden iframe trick — if the app is installed it opens;
+  // if not, the iframe fails silently and we fall back to web Lens.
+  let launched = false;
+
+  // Method 1: googlelens:// custom scheme (Google Lens standalone)
+  const lensScheme = 'googlelens://';
+
+  // Method 2: Google app intent via intent:// URL
+  const intentUrl = 'intent://scan/#Intent;scheme=googleapp;package=com.google.android.googlequicksearchbox;end';
+
+  // Use a hidden link click — more reliable than iframe for intent:// on modern Android
+  const a = document.createElement('a');
+  a.href = intentUrl;
+  a.style.display = 'none';
+  document.body.appendChild(a);
+
+  // Track if the page loses focus (app launched successfully)
+  const blurTime = { t: 0 };
+  const onBlur = () => { blurTime.t = Date.now(); launched = true; };
+  window.addEventListener('blur', onBlur, { once: true });
+
+  try {
+    a.click();
+  } catch(e) {}
+  document.body.removeChild(a);
+
+  // After 1.8s, if page never lost focus, app didn't launch → open web Lens
+  setTimeout(() => {
+    window.removeEventListener('blur', onBlur);
+    if (!launched) {
+      // Show guide with web fallback rather than silently opening a new tab
+      showScanGuide();
+    } else {
+      // App launched — show paste panel ready for when they return
+      setTimeout(() => openPastePanel(), 2000);
+    }
+  }, 1800);
+}
+
 
 function showScanGuide() {
   const { isIOS, isAndroid } = detectScanCapability();
@@ -3300,19 +3352,21 @@ function showScanGuide() {
       </div>`;
   } else if (isAndroid) {
     content.innerHTML = `
-      <div style="background:#e8f5e9;border-left:3px solid #27ae60;border-radius:0 8px 8px 0;padding:12px;margin-bottom:14px">
-        <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:0.72rem;color:#1a5c34;margin-bottom:8px">🤖 Google Lens (Android)</div>
-        <div style="line-height:2">
+      <button onclick="launchGoogleLens()" style="width:100%;padding:14px;border-radius:12px;border:none;background:linear-gradient(135deg,#1a6a4a,#27ae60);color:white;font-family:'Syne',sans-serif;font-weight:800;font-size:0.82rem;cursor:pointer;margin-bottom:14px;letter-spacing:0.5px">
+        🔍 LAUNCH GOOGLE LENS<br><span style="font-size:0.6rem;font-weight:400;opacity:0.8">Opens automatically — take photo → Copy text → come back</span>
+      </button>
+      <div style="background:#e8f5e9;border-left:3px solid #27ae60;border-radius:0 8px 8px 0;padding:12px;margin-bottom:10px">
+        <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:0.68rem;color:#1a5c34;margin-bottom:8px">If Lens doesn't open automatically:</div>
+        <div style="line-height:2;font-size:0.62rem">
           1. Open the <b>Google app</b> or <b>Google Lens</b><br>
           2. Tap the camera icon → take or upload your photo<br>
           3. Tap the <b>Text tab</b> at the bottom<br>
           4. Tap <b>Select all</b> then <b>Copy all</b><br>
-          5. Come back here and tap <b>📋 OPEN PASTE PANEL</b><br>
-          6. Paste and tap <b>EXTRACT ADDRESSES</b>
+          5. Come back here and tap <b>📋 OPEN PASTE PANEL</b>
         </div>
       </div>
-      <div style="background:#f0f8ff;border-left:3px solid #2980b9;border-radius:0 8px 8px 0;padding:10px;font-size:0.56rem;color:#1a3c6e">
-        <b>Shortcut:</b> In Google Photos, long-press any text in a photo and you'll get a "Copy text" option directly.
+      <div style="background:#f0f8ff;border-left:3px solid #2980b9;border-radius:0 8px 8px 0;padding:9px;font-size:0.55rem;color:#1a3c6e">
+        <b>Also works:</b> In Google Photos, long-press any text in a photo → "Copy text"
       </div>`;
   } else {
     content.innerHTML = `
